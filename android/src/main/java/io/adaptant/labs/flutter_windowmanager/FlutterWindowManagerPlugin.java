@@ -9,50 +9,72 @@ import androidx.annotation.NonNull;
 import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.embedding.engine.plugins.activity.ActivityAware;
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding;
-import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
 import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
-import io.flutter.plugin.common.PluginRegistry.Registrar;
 
 /** FlutterWindowManagerPlugin */
-public class FlutterWindowManagerPlugin implements MethodCallHandler, FlutterPlugin, ActivityAware {
+public class FlutterWindowManagerPlugin implements FlutterPlugin, MethodCallHandler, ActivityAware {
+  private MethodChannel channel;
   private Activity activity;
 
-  @SuppressWarnings("unused")
-  public FlutterWindowManagerPlugin() { }
-
-  private FlutterWindowManagerPlugin(Activity activity) {
-    this.activity = activity;
-  }
-
-  /** Plugin registration. */
-  @Deprecated
-  public static void registerWith(Registrar registrar) {
-    new FlutterWindowManagerPlugin(registrar.activity()).registerWith(registrar.messenger());
-  }
-
-  private void registerWith(BinaryMessenger binaryMessenger) {
-    final MethodChannel channel = new MethodChannel(binaryMessenger, "flutter_windowmanager");
-    channel.setMethodCallHandler(this);
-  }
-
+  public FlutterWindowManagerPlugin() {}
 
   @Override
   public void onAttachedToEngine(@NonNull FlutterPluginBinding flutterPluginBinding) {
-    registerWith(flutterPluginBinding.getBinaryMessenger());
+    channel = new MethodChannel(flutterPluginBinding.getBinaryMessenger(), "flutter_windowmanager");
+    channel.setMethodCallHandler(this);
   }
 
   @Override
   public void onDetachedFromEngine(@NonNull FlutterPluginBinding flutterPluginBinding) {
-
+    if (channel != null) {
+      channel.setMethodCallHandler(null);
+      channel = null;
+    }
   }
 
-  /**
-   * Validate flag specification against WindowManager.LayoutParams and API levels, as per:
-   * https://developer.android.com/reference/android/view/WindowManager.LayoutParams
-   */
+  @Override
+  public void onMethodCall(MethodCall call, Result result) {
+    if (activity == null) {
+      result.error("NO_ACTIVITY", "FlutterWindowManagerPlugin: activity is null", null);
+      return;
+    }
+
+    final int flags = call.argument("flags");
+
+    if (!validLayoutParams(result, flags)) {
+      return;
+    }
+
+    switch (call.method) {
+      case "addFlags":
+        activity.getWindow().addFlags(flags);
+        result.success(true);
+        break;
+      case "clearFlags":
+        activity.getWindow().clearFlags(flags);
+        result.success(true);
+        break;
+      default:
+        result.notImplemented();
+    }
+  }
+
+  private boolean validLayoutParams(Result result, int flags) {
+    for (int i = 0; i < Integer.SIZE; i++) {
+      int flag = (1 << i);
+      if ((flags & flag) == flag) {
+        if (!validLayoutParam(flag)) {
+          result.error("INVALID_FLAG", "Invalid flag specification: " + Integer.toHexString(flag), null);
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
   @SuppressWarnings("deprecation")
   private boolean validLayoutParam(int flag) {
     switch (flag) {
@@ -77,76 +99,37 @@ public class FlutterWindowManagerPlugin implements MethodCallHandler, FlutterPlu
       case WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH:
         return true;
       case WindowManager.LayoutParams.FLAG_BLUR_BEHIND:
-        return !(Build.VERSION.SDK_INT >= 15);
+        return Build.VERSION.SDK_INT < 15;
       case WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD:
-        return (Build.VERSION.SDK_INT >= 5 && Build.VERSION.SDK_INT < 26);
+        return Build.VERSION.SDK_INT >= 5 && Build.VERSION.SDK_INT < 26;
       case WindowManager.LayoutParams.FLAG_DITHER:
-        return !(Build.VERSION.SDK_INT >= 17);
+        return Build.VERSION.SDK_INT < 17;
       case WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS:
-        return (Build.VERSION.SDK_INT >= 21);
+        return Build.VERSION.SDK_INT >= 21;
       case WindowManager.LayoutParams.FLAG_LAYOUT_ATTACHED_IN_DECOR:
-        return (Build.VERSION.SDK_INT >= 22);
+        return Build.VERSION.SDK_INT >= 22;
       case WindowManager.LayoutParams.FLAG_LAYOUT_IN_OVERSCAN:
-        return (Build.VERSION.SDK_INT >= 18);
+        return Build.VERSION.SDK_INT >= 18;
       case WindowManager.LayoutParams.FLAG_LOCAL_FOCUS_MODE:
-        return (Build.VERSION.SDK_INT >= 19);
+        return Build.VERSION.SDK_INT >= 19;
       case WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED:
-        return !(Build.VERSION.SDK_INT >= 27);
+        return Build.VERSION.SDK_INT < 27;
       case WindowManager.LayoutParams.FLAG_TOUCHABLE_WHEN_WAKING:
-        return !(Build.VERSION.SDK_INT >= 20);
+        return Build.VERSION.SDK_INT < 20;
       case WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION:
       case WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS:
-        return (Build.VERSION.SDK_INT >= 19);
+        return Build.VERSION.SDK_INT >= 19;
       case WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON:
-        return !(Build.VERSION.SDK_INT >= 27);
+        return Build.VERSION.SDK_INT < 27;
       default:
         return false;
     }
   }
 
-  private boolean validLayoutParams(Result result, int flags) {
-    for (int i = 0; i < Integer.SIZE; i++) {
-      int flag = (1 << i);
-      if ((flags & flag) == 1) {
-        if (!validLayoutParam(flag)) {
-          result.error("FlutterWindowManagerPlugin","FlutterWindowManagerPlugin: invalid flag specification: " + Integer.toHexString(flag), null);
-          return false;
-        }
-      }
-    }
-
-    return true;
-  }
-
+  // ActivityAware methods
   @Override
-  public void onMethodCall(MethodCall call, Result result) {
-    final int flags = call.argument("flags");
-
-    if (activity == null) {
-      result.error("FlutterWindowManagerPlugin", "FlutterWindowManagerPlugin: ignored flag state change, current activity is null", null);
-    }
-
-    if (!validLayoutParams(result, flags)) {
-      return;
-    }
-
-    switch (call.method) {
-      case "addFlags":
-        activity.getWindow().addFlags(flags);
-        result.success(true);
-        break;
-      case "clearFlags":
-        activity.getWindow().clearFlags(flags);
-        result.success(true);
-        break;
-      default:
-        result.notImplemented();
-    }
-  }
-
-  @Override
-  public void onAttachedToActivity(@NonNull ActivityPluginBinding activityPluginBinding) {
-    activity = activityPluginBinding.getActivity();
+  public void onAttachedToActivity(@NonNull ActivityPluginBinding binding) {
+    activity = binding.getActivity();
   }
 
   @Override
@@ -155,8 +138,8 @@ public class FlutterWindowManagerPlugin implements MethodCallHandler, FlutterPlu
   }
 
   @Override
-  public void onReattachedToActivityForConfigChanges(@NonNull ActivityPluginBinding activityPluginBinding) {
-    onAttachedToActivity(activityPluginBinding);
+  public void onReattachedToActivityForConfigChanges(@NonNull ActivityPluginBinding binding) {
+    activity = binding.getActivity();
   }
 
   @Override
