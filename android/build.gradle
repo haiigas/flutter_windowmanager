@@ -22,8 +22,8 @@ rootProject.allprojects {
 apply plugin: 'com.android.library'
 
 android {
-    namespace "io.adaptant.labs.flutter_windowmanager"
-    compileSdkVersion 34
+    namespace = "io.adaptant.labs.flutter_windowmanager"
+    compileSdkVersion 28
 
     defaultConfig {
         minSdkVersion 16
